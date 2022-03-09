@@ -1,0 +1,1012 @@
+import pandas as pd
+import numpy as np
+import warnings
+import matplotlib
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.special import jn
+from IPython.display import display, clear_output
+import time
+from datetime import datetime
+
+warnings.filterwarnings('ignore')
+
+from sklearn import linear_model
+from sklearn import preprocessing
+from sklearn.svm import SVR
+from sklearn.ensemble import RandomForestRegressor,GradientBoostingRegressor
+
+from sklearn.decomposition import PCA,FastICA,FactorAnalysis,SparsePCA
+
+import lightgbm as lgb
+import xgboost as xgb
+from lightgbm.sklearn import LGBMRegressor
+
+from sklearn.model_selection import GridSearchCV,cross_val_score,StratifiedKFold,train_test_split
+from sklearn.metrics import mean_squared_error,mean_absolute_error
+
+from sklearn.metrics import mean_absolute_error,make_scorer
+
+from sklearn.linear_model import LinearRegression
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.neural_network import MLPRegressor
+from xgboost.sklearn import XGBRegressor
+from lightgbm.sklearn import LGBMRegressor
+
+path = 'D:/data analysis/天池-二手车/'
+train_data = pd.read_csv(path+'used_car_train_20200313.csv',sep=' ')
+test_data = pd.read_csv(path+'used_car_testB_20200421.csv',sep= ' ')
+
+train_data.shape
+test_data.shape
+
+all_data = pd.concat([train_data,test_data],ignore_index=True)
+all_data.shape
+
+
+# In[283]:
+
+
+all_data.info()
+
+
+# In[284]:
+
+
+all_data.isnull().sum()
+
+
+# In[285]:
+
+
+cat_fea = ['name','regDate','model','brand','bodyType','fuelType','gearbox','kilometer'
+          ,'notRepairedDamage','regionCode','seller','offerType','creatDate']
+
+
+# In[289]:
+
+
+for fea in cat_fea:
+    print('{}特征有{}个不同的值'.format(fea,all_data[fea].nunique()))
+    print(all_data[fea].value_counts())
+
+
+# In[294]:
+
+
+all_data['name_count'] = all_data.groupby(['name'])['SaleID'].transform('count')
+
+
+# In[297]:
+
+
+del all_data['name']
+
+
+# In[304]:
+
+
+all_data.drop(all_data[all_data['seller'] == 1].index,inplace=True)
+
+
+# In[305]:
+
+
+all_data.shape
+
+
+# In[306]:
+
+
+del all_data['offerType']
+del all_data['seller']
+
+
+# In[308]:
+
+
+all_data['fuelType'] = all_data['fuelType'].fillna(0)
+all_data['gearbox'] = all_data['gearbox'].fillna(0)
+all_data['bodyType'] = all_data['bodyType'].fillna(0)
+all_data['model'] = all_data['model'].fillna(0)
+
+
+# In[314]:
+
+
+all_data['notRepairedDamage'] = all_data['notRepairedDamage'].apply(lambda x: x if x != '-' else None).astype('float32')
+
+
+# In[321]:
+
+
+cat_fea2 = ['model','brand','bodyType','fuelType','gearbox','kilometer'
+          ,'notRepairedDamage','regionCode']
+
+
+# In[325]:
+
+
+plt.figure(figsize=(16,6))
+i = 1
+for fea in cat_fea2:
+    if all_data[fea].nunique()<50:
+        plt.subplot(2,3,i)
+        i += 1
+        v = all_data[fea].value_counts()
+        fig = sns.barplot(x=v.index,y=v.values)
+        for item in fig.get_xticklabels():
+            item.set_rotation(90)
+        plt.title(fea)
+plt.show()
+
+
+# In[326]:
+
+
+num_fea = ['power','price','v_0','v_1','v_2','v_3','v_4','v_5',
+           'v_6','v_7','v_8','v_9','v_10','v_11','v_12','v_13','v_14']
+
+
+# In[327]:
+
+
+f = pd.melt(all_data,value_vars = num_fea)
+
+
+# In[ ]:
+
+
+
+
+
+# In[330]:
+
+
+g = sns.FacetGrid(f,col="variable",col_wrap=3,sharex=False,sharey=False)
+g = g.map(sns.distplot,'value')
+
+
+# In[333]:
+
+
+all_data['power'] = all_data['power'].map(lambda x:600 if x>600 else x)
+
+
+# In[339]:
+
+
+all_data['regDate']
+
+
+# In[ ]:
+
+
+
+
+
+# In[351]:
+
+
+def date_process(x):
+    year = int(str(x)[:4])
+    month = int(str(x)[4:6])
+    day = int(str(x)[6:8])
+    
+    if month < 1:
+        month = 1
+        
+    date = datetime(year,month,day)
+    return date
+
+
+# In[354]:
+
+
+all_data['regDate'] = all_data['regDate'].apply(date_process)
+all_data['creatDate'] = all_data['creatDate'].apply(date_process)
+
+
+# In[362]:
+
+
+all_data['regDate_year'] = all_data['regDate'].dt.year
+all_data['regDate_month'] = all_data['regDate'].dt.month
+all_data['regDate_day'] = all_data['regDate'].dt.day
+all_data['creatDate_year'] = all_data['creatDate'].dt.year
+all_data['creatDate_month'] = all_data['creatDate'].dt.month
+all_data['creatDate_day'] = all_data['creatDate'].dt.day
+all_data['car_age_day'] = (all_data['creatDate'] - all_data['regDate']).dt.days
+
+
+# In[366]:
+
+
+all_data['car_age_year'] = round(all_data['car_age_day'] / 365 , 1)
+
+
+# In[368]:
+
+
+all_data['regionCode_count'] = all_data.groupby(['regionCode'])['SaleID'].transform('count')
+all_data['city'] = all_data['regionCode'].apply(lambda x:str(x)[:2])
+
+
+# In[372]:
+
+
+all_data.tail()
+
+
+# In[376]:
+
+
+bin = [i*10 for i in range(31)]
+all_data['power_bin'] = pd.cut(all_data['power'],bin,labels=False)
+
+
+# In[391]:
+
+
+cat_cols = ['brand','model','kilometer','fuelType','bodyType']
+
+
+# In[392]:
+
+
+for col in cat_cols:
+    t = train_data.groupby(col,as_index=False)['price'].agg(
+        {col+'_count':'count',col+'_price_max':'max',col+'_price_median':'median',
+         col+'_price_min':'min',col+'_price_sum':'sum',col+'_price_std':'std',col+'_price_mean':'mean'})
+    all_data = pd.merge(all_data,t,on=col,how='left')
+
+
+# In[408]:
+
+
+corr1 = abs(all_data[all_data['price'].notnull()][num_fea].corr())
+plt.figure(figsize=(10,10))
+sns.heatmap(corr1,square=True,cmap=sns.cm.rocket_r)
+
+
+# In[409]:
+
+
+#power,v0,v3,v8,v12
+
+
+# In[410]:
+
+
+cross_cols = ['power','v_0','v_3','v_8','v_12']
+
+
+# In[411]:
+
+
+for i in cross_cols:
+    for j in cross_cols:
+        all_data['new'+i+"*"+j] = all_data[i] * all_data[j]
+
+
+# In[413]:
+
+
+plt.hist(train_data['price'])
+
+
+# In[414]:
+
+
+plt.hist(np.log1p(train_data['price']))
+
+
+# In[441]:
+
+
+all_data['city'] = all_data['city'].astype('int')
+
+
+# In[442]:
+
+
+df = all_data.copy()
+
+
+# In[443]:
+
+
+test = df[df['price'].isnull()]
+X_train = df[df['price'].notnull()].drop(['price','regDate','creatDate','SaleID','regionCode'],axis=1)
+X_test = df[df['price'].isnull()].drop(['price','regDate','creatDate','SaleID','regionCode'],axis=1)
+y_train = np.log1p(df[df['price'].notnull()]['price'])
+
+
+# In[ ]:
+
+
+
+
+
+# In[446]:
+
+
+y_train
+
+
+# In[423]:
+
+
+X_train.shape
+
+
+# In[467]:
+
+
+clf = LGBMRegressor(n_estimators=10000
+                   ,learning_rate=0.2
+                   ,boosting_type='gbdt'
+                   ,objective='regression_l1'
+                   ,max_depth=-1
+                   ,num_leaves=30
+                   ,min_child_samples=20
+                   ,feature_fraction=0.8
+                   ,lambda_l2=2 
+                   ,metric='mae'
+                   ,random_state=717)
+
+
+# In[468]:
+
+
+folds = KFold(n_splits=5,shuffle=True,random_state=717)
+mae = 0
+oof = np.zeros(X_train.shape[0])
+sub = test[['SaleID']].copy()
+sub['price'] = 0
+
+
+# In[469]:
+
+
+for i,(train_idx,val_idx) in enumerate(folds.split(X_train,y_train)):
+    train_X,train_y = X_train.iloc[train_idx].reset_index(drop=True),y_train[train_idx]
+    val_X,val_y = X_train.iloc[val_idx].reset_index(drop=True),y_train[val_idx]
+    clf.fit(train_X,train_y
+           ,eval_set=[(val_X,val_y)]
+           ,eval_metric='mae'
+           ,early_stopping_rounds=100
+           ,verbose=0
+           )
+    sub['price'] = sub['price'] + np.expm1(clf.predict(X_test))/folds.n_splits
+    oof[val_idx] = clf.predict(val_X)
+    print('val_mae:',mean_absolute_error(np.expm1(val_y),np.expm1(oof[val_idx])))
+    mae = mae + mean_absolute_error(np.expm1(val_y),np.expm1(oof[val_idx]))/folds.n_splits
+
+
+# In[434]:
+
+
+y_train
+
+
+# In[453]:
+
+
+import hyperopt
+from hyperopt import hp,fmin,tpe,Trials,partial
+from hyperopt.early_stop import no_progress_loss
+
+
+# In[470]:
+
+
+def hyperopt_objective(params):
+    reg = LGBMRegressor(objective = 'regression_l1',
+                        n_estimators = int(params['n_estimators']),
+                        num_leaves = int(params['num_leaves']),
+                        max_depth = int(params['max_depth']),
+                        subsample = params['subsample'],
+                        min_child_samples = int(params['min_child_samples'])   
+                       )
+    val = cross_val_score(reg,
+                          X_train,
+                          y_train,
+                          verbose=0,
+                          cv=5,
+                          scoring=make_scorer(mean_absolute_error)
+                         ).mean()
+    return val
+
+
+# In[471]:
+
+
+param_simple = {
+                'n_estimators': hp.quniform('n_estimators',200,10000,1),
+                'num_leaves': hp.quniform('num_leaves',2,100,1),
+                'max_depth': hp.quniform('max_depth',2,100,1),
+                'subsample': hp.uniform('subsample',0.1,1),
+                'min_child_samples': hp.quniform('min_child_samples',2,100,1)
+               }
+
+
+# In[472]:
+
+
+def param_hyperopt(max_evals=100):
+    trials = Trials()
+    early_stop_fn = no_progress_loss(100)
+    
+    params_best = fmin(hyperopt_objective,
+                       space = param_simple,
+                       algo = tpe.suggest,
+                       max_evals = max_evals,
+                       verbose = True,
+                       trials = trials,
+                       early_stop_fn = early_stop_fn
+                      )
+    print('\n','\n','best params:',params_best,'\n')
+    return params_best,trials
+
+
+# In[ ]:
+
+
+params_best , trials = param_hyperopt(30)
+
+
+# In[ ]:
+
+
+
+
+
+# In[458]:
+
+
+params_best
+
+
+# In[465]:
+
+
+reg2 = LGBMRegressor(max_depth= 20,
+                     min_child_samples= 91,
+                     n_estimators= 100,
+                     num_leaves= 98,
+                     subsample= 0.651351675568202
+                    ) 
+
+
+# In[466]:
+
+
+reg2.fit(X_train,y_train)
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[257]:
+
+
+def hyperopt_validation():
+    reg = LGBMRegressor(objective = 'regression_l1',
+                        n_estimators = int(100),
+                        num_leaves = int(89),
+                        max_depth = int(51),
+                        subsample = float(0.7998695248344359),
+                        min_child_samples = int(8)   
+                       )
+    val = cross_val_score(reg,
+                          data_train_feature,
+                          data_train_y,
+                          verbose=0,
+                          cv=5,
+                          scoring=make_scorer(mean_absolute_error(data_train_y,))
+                         ).mean()
+    return val
+
+
+# In[227]:
+
+
+get_ipython().run_line_magic('pinfo', 'np.expm1')
+
+
+# In[228]:
+
+
+get_ipython().run_line_magic('pinfo', 'np.log1p')
+
+
+# In[236]:
+
+
+data_train_yln = np.log1p(data_train_y)
+
+
+# In[237]:
+
+
+def hyperopt_objective(params):
+    reg = LGBMRegressor(objective = params['objective'],
+                        n_estimators = int(params['n_estimators']),
+                        num_leaves = int(params['num_leaves']),
+                        max_depth = int(params['max_depth']),
+                        subsample = params['subsample'],
+                        min_child_samples = int(params['min_child_samples'])   
+                       )
+    val = cross_val_score(reg,
+                          data_train,
+                          data_train_yln,
+                          verbose=0,
+                          cv=5,
+                          scoring=make_scorer(mean_absolute_error)
+                         ).mean()
+    return val
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[219]:
+
+
+plt.hist(np.log(data['price']))
+
+
+# In[220]:
+
+
+plt.hist(data['power'])
+
+
+# In[222]:
+
+
+plt.hist(data_train['power'])
+
+
+# In[217]:
+
+
+data[data['price'] > 20000]['price']
+
+
+# In[224]:
+
+
+data['power_bin'].value_counts()
+
+
+# In[199]:
+
+
+data['notRepairedDamage'].replace('-',np.nan,inplace=True)
+
+
+# In[202]:
+
+
+data['notRepairedDamage'] = data['notRepairedDamage'].astype(float)
+
+
+# In[203]:
+
+
+data_train = data[data['SaleID'] <150000]
+
+
+# In[204]:
+
+
+data_train.shape
+
+
+# In[205]:
+
+
+data_train_y = data_train['price']
+
+
+# In[206]:
+
+
+data_train.drop(['price'],axis=1,inplace=True)
+
+
+# In[207]:
+
+
+data_train.shape
+
+
+# In[208]:
+
+
+data_test = data[data['SaleID']>=150000]
+data_test.shape
+
+
+# In[209]:
+
+
+data_test.drop(['price'],axis=1,inplace=True)
+
+
+# In[210]:
+
+
+data_test.shape
+
+
+# In[211]:
+
+
+data_train
+
+
+# In[212]:
+
+
+model = LGBMRegressor(n_estimators=100,objective='regression_l1')
+score = np.mean(cross_val_score(model,X = data_train, y = data_train_y,cv=5,scoring=make_scorer(mean_absolute_error)))
+
+
+# In[213]:
+
+
+score
+
+
+# In[145]:
+
+
+def build_model_lgb(x_train,y_train):
+    estimator = lgb.LGBMRegressor(num_leaves=127,n_estimators=150)
+    param_grid={
+        'learning_rate':[0.01,0.05,0.1,0.2],
+    }
+    gbm = GridSearchCV(estimator,param_grid)
+    gbm.fit(x_train,y_train)
+    return gbm
+
+
+# In[146]:
+
+
+x_train,x_val,y_train,y_val = train_test_split(data_train,data_train_y,test_size=0.3)
+
+
+# In[147]:
+
+
+print('Train lgb...')
+model_lgb = build_model_lgb(x_train,y_train)
+val_lgb = model_lgb.predict(x_val)
+MAE_lgb = mean_absolute_error(y_val,val_lgb)
+print('MAE of val with lgb:',MAE_lgb)
+
+
+# In[150]:
+
+
+import hyperopt
+from hyperopt import hp,fmin,tpe,Trials,partial
+from hyperopt.early_stop import no_progress_loss
+
+
+# In[159]:
+
+
+def hyperopt_objective(params):
+    reg = LGBMRegressor(objective = params['objective'],
+                        n_estimators = int(params['n_estimators']),
+                        num_leaves = int(params['num_leaves']),
+                        max_depth = int(params['max_depth']),
+                        subsample = params['subsample'],
+                        min_child_samples = int(params['min_child_samples'])   
+                       )
+    val = cross_val_score(reg,
+                          data_train,
+                          data_train_y,
+                          verbose=0,
+                          cv=5,
+                          scoring=make_scorer(mean_absolute_error)
+                         ).mean()
+    return val
+
+
+# In[160]:
+
+
+param_simple = {'objective': hp.choice('objective',['regression_l1','regression','huber','fair','mape']),
+                'n_estimators': hp.quniform('n_estimators',2,100,1),
+                'num_leaves': hp.quniform('num_leaves',2,100,1),
+                'max_depth': hp.quniform('max_depth',2,100,1),
+                'subsample': hp.uniform('subsample',0.1,1),
+                'min_child_samples': hp.quniform('min_child_samples',2,100,1)
+               }
+
+
+# In[161]:
+
+
+def param_hyperopt(max_evals=100):
+    trials = Trials()
+    early_stop_fn = no_progress_loss(100)
+    
+    params_best = fmin(hyperopt_objective,
+                       space = param_simple,
+                       algo = tpe.suggest,
+                       max_evals = max_evals,
+                       verbose = True,
+                       trials = trials,
+                       early_stop_fn = early_stop_fn
+                      )
+    print('\n','\n','best params:',params_best,'\n')
+    return params_best,trials
+
+
+# In[162]:
+
+
+params_best , trials = param_hyperopt(30)
+
+
+# In[227]:
+
+
+get_ipython().run_line_magic('pinfo', 'np.expm1')
+
+
+# In[228]:
+
+
+get_ipython().run_line_magic('pinfo', 'np.log1p')
+
+
+# In[236]:
+
+
+data_train_yln = np.log1p(data_train_y)
+
+
+# In[237]:
+
+
+def hyperopt_objective(params):
+    reg = LGBMRegressor(objective = params['objective'],
+                        n_estimators = int(params['n_estimators']),
+                        num_leaves = int(params['num_leaves']),
+                        max_depth = int(params['max_depth']),
+                        subsample = params['subsample'],
+                        min_child_samples = int(params['min_child_samples'])   
+                       )
+    val = cross_val_score(reg,
+                          data_train,
+                          data_train_yln,
+                          verbose=0,
+                          cv=5,
+                          scoring=make_scorer(mean_absolute_error)
+                         ).mean()
+    return val
+
+
+# In[238]:
+
+
+param_simple = {'objective': hp.choice('objective',['regression_l1','regression','huber','fair','mape']),
+                'n_estimators': hp.quniform('n_estimators',2,100,1),
+                'num_leaves': hp.quniform('num_leaves',2,100,1),
+                'max_depth': hp.quniform('max_depth',2,100,1),
+                'subsample': hp.uniform('subsample',0.1,1),
+                'min_child_samples': hp.quniform('min_child_samples',2,100,1)
+               }
+
+
+# In[239]:
+
+
+def param_hyperopt(max_evals=100):
+    trials = Trials()
+    early_stop_fn = no_progress_loss(100)
+    
+    params_best = fmin(hyperopt_objective,
+                       space = param_simple,
+                       algo = tpe.suggest,
+                       max_evals = max_evals,
+                       verbose = True,
+                       trials = trials,
+                       early_stop_fn = early_stop_fn
+                      )
+    print('\n','\n','best params:',params_best,'\n')
+    return params_best,trials
+
+
+# In[240]:
+
+
+params_best , trials = param_hyperopt(30)
+
+
+# In[244]:
+
+
+len(trials.losses())
+
+
+# In[256]:
+
+
+data_train_feature = data_train.drop('SaleID',axis=1)
+
+
+# In[257]:
+
+
+def hyperopt_validation():
+    reg = LGBMRegressor(objective = 'regression_l1',
+                        n_estimators = int(100),
+                        num_leaves = int(89),
+                        max_depth = int(51),
+                        subsample = float(0.7998695248344359),
+                        min_child_samples = int(8)   
+                       )
+    val = cross_val_score(reg,
+                          data_train_feature,
+                          data_train_y,
+                          verbose=0,
+                          cv=5,
+                          scoring=make_scorer(mean_absolute_error(data_train_y,))
+                         ).mean()
+    return val
+
+
+# In[264]:
+
+
+from sklearn.model_selection import KFold
+
+
+# In[265]:
+
+
+skf = KFold(n_splits=5,shuffle=True,random_state=717)
+
+
+# In[276]:
+
+
+clf = LGBMRegressor(objective = 'regression_l1',
+                        n_estimators = 2500,
+                        num_leaves = int(89),
+                        max_depth = int(51),
+                        subsample = float(0.7998695248344359),
+                        min_child_samples = 10
+                   )
+
+
+# In[266]:
+
+
+data_test
+
+
+# In[269]:
+
+
+oof = np.zeros(data_train.shape[0])
+mae = 0
+
+
+# In[272]:
+
+
+data_train_yln
+
+
+# In[277]:
+
+
+for i , (train_idx,val_idx) in enumerate(skf.split(data_train_feature,data_train_yln)):
+    train_x , train_y = data_train.iloc[train_idx].reset_index(drop=True),data_train_yln[train_idx]
+    val_x ,val_y = data_train.iloc[val_idx].reset_index(drop=True),data_train_yln[val_idx]
+    clf.fit(train_x,train_y,
+            eval_set=[(val_x,val_y)],
+            eval_metric = 'mae',
+            early_stopping_rounds=100,
+            )
+    oof[val_idx] = clf.predict(val_x)
+    print('val mae:',mean_absolute_error(np.expm1(val_y),np.expm1(oof[val_idx])))
+    mae = mae + mean_absolute_error(np.expm1(val_y),np.expm1(oof[val_idx]))/skf.n_splits
+
+
+# In[ ]:
+
+
+
+
